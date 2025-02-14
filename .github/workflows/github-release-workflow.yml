@@ -1,0 +1,68 @@
+name: Auto Release Creation
+
+on:
+  pull_request:
+    types: [closed]
+    branches:
+      - develop
+      - develop-ca
+
+jobs:
+  create-release:
+    if: github.event.pull_request.merged == true && (startsWith(github.event.pull_request.head.ref, 'feature/') || startsWith(github.event.pull_request.head.ref, 'bugfix/'))
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+
+      - name: Set up JDK
+        uses: actions/setup-java@v3
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+      - name: Extract version from pom.xml
+        id: get-version
+        run: |
+          VERSION=$(xmllint --xpath "//project[artifactId='common-core' or artifactId='common-mongo' or artifactId='common-postgre' or artifactId='common-elastic' or artifactId='dnext-common-dependencies']/version/text()" pom.xml)
+          echo "VERSION=$VERSION" >> $GITHUB_ENV
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+
+      - name: Determine branch type
+        id: branch-type
+        run: |
+          BASE_BRANCH=${{ github.event.pull_request.base.ref }}
+          if [[ "$BASE_BRANCH" == "develop" ]]; then
+            echo "RELEASE_SUFFIX=" >> $GITHUB_ENV
+            echo "CREATE_TAG=true" >> $GITHUB_ENV
+          elif [[ "$BASE_BRANCH" == "develop-ca" ]]; then
+            echo "RELEASE_SUFFIX=-ca" >> $GITHUB_ENV
+            echo "CREATE_TAG=false" >> $GITHUB_ENV
+          fi
+
+      - name: Create Release Branch
+        run: |
+          git config user.name github-actions
+          git config user.email github-actions@github.com
+          git checkout -b release/${{ env.VERSION }}${{ env.RELEASE_SUFFIX }}
+          git push origin release/${{ env.VERSION }}${{ env.RELEASE_SUFFIX }}
+
+      - name: Create Release Tag
+        if: env.CREATE_TAG == 'true'
+        run: |
+          git tag ${{ env.VERSION }}
+          git push origin ${{ env.VERSION }}
+
+      - name: Create GitHub Release
+        if: env.CREATE_TAG == 'true'
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: ${{ env.VERSION }}
+          name: Release ${{ env.VERSION }}
+          draft: false
+          prerelease: false
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
