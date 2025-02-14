@@ -1,5 +1,9 @@
 name: Auto Release Creation
 
+permissions:
+  contents: write
+  pull-requests: write
+
 on:
   pull_request:
     types: [closed]
@@ -23,12 +27,34 @@ jobs:
           java-version: '17'
           distribution: 'temurin'
 
-      - name: Extract version from pom.xml
-        id: get-version
+      - name: Extract version and artifact info from pom.xml
+        id: get-info
         run: |
+          ARTIFACT_ID=$(grep -A1 -E "<artifactId>(common-core|common-mongo|common-postgre|common-elastic|dnext-common-dependencies)</artifactId>" pom.xml | grep "<artifactId>" | head -n1 | sed 's/.*<artifactId>\(.*\)<\/artifactId>.*/\1/' | tr -d '[:space:]')
           VERSION=$(grep -A1 -E "<artifactId>(common-core|common-mongo|common-postgre|common-elastic|dnext-common-dependencies)</artifactId>" pom.xml | grep "<version>" | head -n1 | sed 's/.*<version>\(.*\)<\/version>.*/\1/' | tr -d '[:space:]')
+          
+          case $ARTIFACT_ID in
+            "common-core")
+              RELEASE_PREFIX="CCL"
+              ;;
+            "common-mongo")
+              RELEASE_PREFIX="CML"
+              ;;
+            "common-postgre")
+              RELEASE_PREFIX="CPL"
+              ;;
+            "common-elastic")
+              RELEASE_PREFIX="CEL"
+              ;;
+            "dnext-common-dependencies")
+              RELEASE_PREFIX="DCD"
+              ;;
+          esac
+          
           echo "VERSION=$VERSION" >> $GITHUB_ENV
+          echo "RELEASE_PREFIX=$RELEASE_PREFIX" >> $GITHUB_ENV
           echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "prefix=$RELEASE_PREFIX" >> $GITHUB_OUTPUT
 
       - name: Determine branch type
         id: branch-type
@@ -46,8 +72,8 @@ jobs:
         run: |
           git config user.name github-actions
           git config user.email github-actions@github.com
-          git checkout -b release/${{ env.VERSION }}${{ env.RELEASE_SUFFIX }}
-          git push origin release/${{ env.VERSION }}${{ env.RELEASE_SUFFIX }}
+          git checkout -b release/v${{ env.VERSION }}${{ env.RELEASE_SUFFIX }}
+          git push origin release/v${{ env.VERSION }}${{ env.RELEASE_SUFFIX }}
 
       - name: Create Release Tag
         if: env.CREATE_TAG == 'true'
@@ -60,7 +86,7 @@ jobs:
         uses: softprops/action-gh-release@v1
         with:
           tag_name: ${{ env.VERSION }}
-          name: Release ${{ env.VERSION }}
+          name: ${{ env.RELEASE_PREFIX }}-${{ env.VERSION }}
           draft: false
           prerelease: false
           generate_release_notes: true
